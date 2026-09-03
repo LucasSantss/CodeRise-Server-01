@@ -241,7 +241,12 @@ export function normalizeProduct(p) {
     description: buildDescriptionHtml(p.plain_description || p.description || ""),
     categoryId,
     brand: p.brand || null,
-    isActive: p.available === true || p.available === "true",
+    // "available" é o nome do campo na API REST (GET /products/{id}, usada na
+    // sincronização completa); o payload de webhook (product-changed) traz o
+    // mesmo dado como "active" — sem checar os dois, o atalho do webhook
+    // (normalizeWebhookProduct, que processa o payload direto sem refetch)
+    // sempre lia undefined e marcava o produto como inativo por engano.
+    isActive: p.available === true || p.available === "true" || p.active === true || p.active === "true",
     price: firstVariant.price || parseFloat(p.price || 0),
     promotionalPrice: firstVariant.promotionalPrice || parseFloat(p.promotional_price || 0),
     url: p.url || null,
