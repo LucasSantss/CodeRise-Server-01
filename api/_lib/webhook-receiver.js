@@ -352,9 +352,11 @@ export async function processOlistStockOrPriceChanged(suriEndpoint, suriToken, n
         await logChatbotProductSync(userId, { id: productId, sku: refItems[0]?.sku, name: reference }, { status: "processed", result: syncResult }, logEventType);
       } catch (err) {
         // Produto existe na Olist mas ainda não foi criado na Suri — o endpoint
-        // dedicado responde 404 porque só atualiza produto já existente.
+        // dedicado só atualiza produto já existente. Na prática a Suri responde
+        // HTTP 400 (não 404) com a mensagem "Product with id X not found" nesse
+        // caso, então checamos o texto do erro em vez do status.
         // Cai pro fluxo completo, que cria o produto do zero se preciso.
-        if ((err.message || "").includes("HTTP 404")) {
+        if (/HTTP 404/.test(err.message || "") || /not found/i.test(err.message || "")) {
           const full = await olistClient.getProduct(store_url, access_token, found.id);
           syncResult = await processProductSync(suriEndpoint, suriToken, { product: full || found }, "olist", userId);
         } else {
