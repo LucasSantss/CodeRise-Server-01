@@ -144,23 +144,37 @@ function buildDescriptionHtml(rawText) {
 }
 
 /**
- * Busca o produto completo na API da Olist e normaliza.
- * Garante dados sempre atualizados, independente do que veio no webhook.
+ * Busca o produto completo na API da Olist com variantes sempre atualizadas
+ * (formato bruto da Olist, não normalizado).
+ *
+ * GET /products/{id} devolve as variantes num sub-objeto que às vezes fica
+ * defasado (preço/estoque zerados) em relação ao estado real — observado em
+ * produtos recém-criados/em edição, onde o webhook de estoque ou preço chega
+ * antes do detalhe do produto refletir o valor atual. GET /products/{id}/variants
+ * é a fonte correta pra isso, então sempre sobrescrevemos p.variants com o
+ * retorno desse endpoint quando disponível.
  */
-export async function fetchAndNormalizeProduct(config, productId) {
+export async function fetchFullProductRaw(config, productId) {
   const { store_url, access_token } = config;
 
-  // Busca produto e variantes em paralelo para dados atualizados
   const [p, variantsFromApi] = await Promise.all([
     client.getProduct(store_url, access_token, productId),
     client.getProductVariants(store_url, access_token, productId).catch(() => null),
   ]);
 
-  // Injeta variantes atualizadas antes de normalizar
   if (Array.isArray(variantsFromApi) && variantsFromApi.length > 0) {
     p.variants = variantsFromApi;
   }
 
+  return p;
+}
+
+/**
+ * Busca o produto completo na API da Olist e normaliza.
+ * Garante dados sempre atualizados, independente do que veio no webhook.
+ */
+export async function fetchAndNormalizeProduct(config, productId) {
+  const p = await fetchFullProductRaw(config, productId);
   return normalizeProduct(p);
 }
 

@@ -58,14 +58,32 @@ function toSuriFormat(product, storeId) {
 
   const basePrices = resolveSuriPrices(product.price, product.promotionalPrice ?? 0);
 
+  // A Suri exige que todas as variações (`dimensions[]`) do mesmo produto
+  // compartilhem exatamente o mesmo conjunto de atributos (ex: todas com
+  // "Tamanho" e "Cor") — senão rejeita o produto inteiro com
+  // "ProductAttributesAndDimensionsMustMatch". Produtos ainda em edição na
+  // Olist/e-commerce podem chegar com atributos preenchidos só em parte das
+  // variantes (ex: tamanhos configurados um a um); calculamos aqui a união
+  // dos nomes de atributo entre todas as variantes pra preencher "-" nas que
+  // ainda não têm valor, em vez de travar a sincronização do produto todo.
+  const allAttributeNames = Array.from(new Set(
+    (product.variants || []).flatMap(v => (v.attributes || []).filter(a => hasValue(a.value)).map(a => String(a.name)))
+  ));
+
   const dimensions = (product.variants && product.variants.length > 0)
     ? product.variants.map(v => {
       const variantPrices = resolveSuriPrices(v.price ?? product.price, v.promotionalPrice ?? product.promotionalPrice ?? 0);
       const validAttributes = (v.attributes || []).filter(a => hasValue(a.value));
+      const finalAttributes = [
+        ...validAttributes.map(a => ({ name: String(a.name), value: String(a.value) })),
+        ...allAttributeNames
+          .filter(name => !validAttributes.some(a => String(a.name) === name))
+          .map(name => ({ name, value: "-" })),
+      ];
       const variantObj = {
         sku: buildSku(v.sku || product.sku, product.id),
         dimensions: Object.fromEntries(
-          validAttributes.map(a => [String(a.name), String(a.value)])
+          finalAttributes.map(a => [a.name, a.value])
         ),
         price: variantPrices.price,
         promotionalPrice: variantPrices.promotionalPrice,
@@ -79,10 +97,7 @@ function toSuriFormat(product, storeId) {
           unitsPerPackage: 1,
         },
         // Atributos da variação (ex: [{ name: "Cor", value: "Azul" }, { name: "Tamanho", value: "M" }])
-        attributes: validAttributes.map(a => ({
-          name: String(a.name || ""),
-          value: String(a.value || ""),
-        })),
+        attributes: finalAttributes,
         image: buildImage(v.imageUrl),
       };
       return variantObj;
@@ -156,12 +171,14 @@ function toSuriFormat(product, storeId) {
     attributes: (() => {
       // Agrega atributos das variações no formato que a Suri espera:
       // [{ name: "Cor", options: [{ name: "Azul" }, { name: "Vermelho" }] }]
+      // Lê de `dimensions` (já com os placeholders "-" preenchidos acima), não
+      // das variantes originais, pra manter as opções aqui coerentes com os
+      // valores que cada variação de fato carrega em `dimensions[].dimensions`.
       const attrMap = new Map();
-      for (const v of (product.variants || [])) {
-        for (const a of (v.attributes || [])) {
-          if (!hasValue(a.value)) continue;
+      for (const d of dimensions) {
+        for (const a of (d.attributes || [])) {
           if (!attrMap.has(a.name)) attrMap.set(a.name, new Set());
-          attrMap.get(a.name).add(String(a.value));
+          attrMap.get(a.name).add(a.value);
         }
       }
       return Array.from(attrMap.entries()).map(([name, values]) => ({

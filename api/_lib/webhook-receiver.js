@@ -320,8 +320,7 @@ export async function processOlistStockOrPriceChanged(suriEndpoint, suriToken, n
   const { store_url, access_token } = intRow.rows[0]?.ecommerce_config || {};
   if (!store_url || !access_token) return { action: "skipped", reason: "Credenciais da Olist não configuradas" };
 
-  const olistClient = await import("./ecommerce/olist/client.js");
-  const { findProductByReference } = await import("./ecommerce/olist/products.js");
+  const { findProductByReference, fetchFullProductRaw } = await import("./ecommerce/olist/products.js");
 
   const isPriceChange = normalized.eventType === "product.price_changed";
   const logEventType = isPriceChange ? "product.price_updated" : "product.stock_updated";
@@ -343,7 +342,7 @@ export async function processOlistStockOrPriceChanged(suriEndpoint, suriToken, n
       const found = await findProductByReference(store_url, access_token, reference, refItems[0]?.sku);
       if (!found) { results.push({ reference, status: "not_found_in_olist" }); continue; }
 
-      const full = await olistClient.getProduct(store_url, access_token, found.id);
+      const full = await fetchFullProductRaw({ store_url, access_token }, found.id);
       // processProductSync já registra o log (sucesso ou erro) via logChatbotProductSync internamente.
       const syncResult = await processProductSync(suriEndpoint, suriToken, { product: full || found }, "olist", userId, logEventType);
       results.push({ reference, status: "synced", ...syncResult });
@@ -628,8 +627,8 @@ export async function handleWebhook(req, res) {
         const intRow = await pool.query("SELECT ecommerce_config FROM user_integrations WHERE user_id = $1", [user_id]);
         const { store_url, access_token } = intRow.rows[0]?.ecommerce_config || {};
         if (store_url && access_token) {
-          const { getProduct } = await import("./ecommerce/olist/client.js");
-          const full = await getProduct(store_url, access_token, rawPayload.id);
+          const { fetchFullProductRaw } = await import("./ecommerce/olist/products.js");
+          const full = await fetchFullProductRaw({ store_url, access_token }, rawPayload.id);
           if (full) rawPayload = { ...rawPayload, ...full };
         }
       } catch {}
