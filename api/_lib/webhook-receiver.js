@@ -217,7 +217,6 @@ export async function processOrderCreated(ep, tk, n) {
   return { action: "budget_created", suriOrderId };
 }
 export async function processOrderShipped(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); const st=mapLogisticStatus(n.logisticStatus); await suriRequest(ep,tk,"POST","/api/shop/orders/logistic",{id:ex.id||ex.orderId,status:st}); return {action:"logistic_updated",suriOrderId:ex.id,status:st}; }
-export async function processOrderCancelled(ep,tk,n) { const ex=await findSuriOrder(ep,tk,n.orderId); if (!ex) throw new Error(`Pedido ${n.orderId} não encontrado na Suri`); await suriRequest(ep,tk,"POST","/api/shop/orders/cancel",{orderId:ex.id||ex.orderId}); return {action:"cancelled",suriOrderId:ex.id}; }
 // Registra o resultado do envio à Suri como uma linha própria em user_webhooks
 // (origem "chatbot"), separada da linha de recebimento do webhook do e-commerce
 // (origem "ecommerce") — assim dá pra ver, na tela de Logs, se a sincronização
@@ -714,7 +713,11 @@ export async function handleWebhook(req, res) {
     switch (eventType) {
       case "order.created":        result = await processOrderCreated(suri_endpoint, suri_token, normalized);  break;
       case "order.shipped":        result = await processOrderShipped(suri_endpoint, suri_token, normalized);  break;
-      case "order.cancelled":      result = await processOrderCancelled(suri_endpoint, suri_token, normalized); break;
+      // Cancelamento vindo do e-commerce não propaga pra Suri — só a Suri
+      // (order.cancelled.suri/order.cancelled.olist) é fonte da verdade pra
+      // cancelar pedido; senão um cancelamento parcial/local no e-commerce
+      // cancelaria o pedido inteiro na Suri sem ela ter decidido isso.
+      case "order.cancelled":      { await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Ignorado: ${logEventType} (cancelamento só é aplicado quando vem da Suri)`, webhookId]); return res.status(200).json({ success:true, message:"Evento registrado sem ação.", event_type:logEventType, webhook_id:webhookId }); }
       case "product.sync":         result = await processProductSync(suri_endpoint, suri_token, normalized, ecommerce_platform, user_id); break;
       case "order.noop":           { await pool.query("UPDATE user_webhooks SET status='processed', error_message=$1 WHERE id=$2", [`Ignorado: ${logEventType} (sem ação configurada)`, webhookId]); return res.status(200).json({ success:true, message:"Evento registrado sem ação.", event_type:logEventType, webhook_id:webhookId }); }
       case "order.paid":           result = await processSuriOrderCreatedGeneric(suri_endpoint, suri_token, normalized, user_id); break;
