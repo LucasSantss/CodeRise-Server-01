@@ -251,64 +251,6 @@ export async function syncProduct(endpoint, token, product, resolvedStoreId = nu
   }
 }
 
-/**
- * Atualiza só o preço de um ou mais SKUs de um produto que já existe na Suri,
- * via PUT /api/shop/products/{id}/prices — bem mais leve que reenviar o
- * produto inteiro (PUT /api/shop/products). Usado pelo webhook prices-changed
- * da Olist, que já traz sku+price prontos, sem precisar buscar o produto completo.
- * https://documenter.getpostman.com/view/17684221/UUxz9mt5#6df344c4-6193-430a-8b66-bb6614d055d8
- *
- * @param {Array<{sku: string, price: number, promotionalPrice?: number}>} items
- */
-export async function updateProductPricesOnly(endpoint, token, productId, items, resolvedStoreId = null) {
-  const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token);
-  if (!storeId) throw new Error("Nenhuma loja encontrada na Suri — configure uma loja antes de sincronizar produtos.");
-
-  const skus = items.map(item => {
-    const prices = resolveSuriPrices(item.price, item.promotionalPrice ?? 0);
-    return {
-      sku: String(item.sku),
-      price: prices.price,
-      priceTables: buildPriceTables(storeId, prices.price),
-    };
-  });
-  const body = { listPrice: skus[0]?.price ?? 0, skus };
-
-  try {
-    await client.updateProductPrices(endpoint, token, productId, body);
-    return { action: "prices_updated", productId, storeId, sentPayload: body };
-  } catch (err) {
-    err.suriPayload = body;
-    throw err;
-  }
-}
-
-/**
- * Atualiza só o estoque de um ou mais SKUs de um produto que já existe na
- * Suri, via PUT /api/shop/products/{id}/stocks — mesmo racional do
- * updateProductPricesOnly, para o webhook stocks-changed da Olist.
- *
- * @param {Array<{sku: string, stock: number}>} items
- */
-export async function updateProductStocksOnly(endpoint, token, productId, items, resolvedStoreId = null) {
-  const storeId = resolvedStoreId || await getFirstStoreId(endpoint, token);
-  if (!storeId) throw new Error("Nenhuma loja encontrada na Suri — configure uma loja antes de sincronizar produtos.");
-
-  const skus = items.map(item => ({
-    sku: String(item.sku),
-    stocks: buildStocks(storeId, item.stock ?? 0),
-  }));
-  const body = { skus };
-
-  try {
-    await client.updateProductStocks(endpoint, token, productId, body);
-    return { action: "stocks_updated", productId, storeId, sentPayload: body };
-  } catch (err) {
-    err.suriPayload = body;
-    throw err;
-  }
-}
-
 export async function deactivateProduct(endpoint, token, productId) {
   try {
     await client.deactivateProduct(endpoint, token, productId);
